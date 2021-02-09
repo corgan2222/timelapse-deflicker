@@ -16,8 +16,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#./timelapse-deflicker.pl -i "/var/www/vhosts/knaak.org/httpdocs/wsl_test/2019_11_12" -o "/data/temp/test" -d 1 -v 1 -V 1
-
 # Needed packages
 use Getopt::Std;
 use strict "vars";
@@ -28,12 +26,11 @@ use File::Type;
 use Term::ProgressBar;
 use Image::ExifTool qw(:Public);
 use version;
-use File::Slurp; 
 
 #use File::Spec;
 
 # Set the version of the timelapse-deflicker script.
-our $VERSION = version->declare("0.1.1");
+our $VERSION = version->declare("0.1.0");
 
 # Read the version of the imagemagick library that is currently used.
 my ( $_im_version ) = Image::Magick->new->Get('version') =~ /\s+(\d+\.\d+\.\d+-\d+)\s+/;
@@ -75,9 +72,6 @@ my $VERBOSE       = 0;
 my $DEBUG         = 0;
 my $RollingWindow = 15;
 my $Passes        = 1;
-my $Input_Folder  = "";
-my $Output_Folder = "";
-my $Output_name   = "";
 
 #Define namespace and tag for luminance, to be used in the XMP files.
 %Image::ExifTool::UserDefined::luminance = (
@@ -105,10 +99,7 @@ my $Output_name   = "";
 # d is "debug" (no arguments)
 # w is "rolling window size" (single numeric argument)
 # p is "passes" (single numeric argument)
-# i is "inputfolder" (string)
-# o is "outputfolder" (string)
-# n is "outputname" (string)
-my $opt_string = 'hvdw:p:V:i:o:n';
+my $opt_string = 'hvdw:p:V';
 getopts( "$opt_string", \my %opt ) or usage() and exit 1;
 
 # print help message if -h is invoked
@@ -126,9 +117,6 @@ $VERBOSE       = 1         if $opt{'v'};
 $DEBUG         = 1         if $opt{'d'};
 $RollingWindow = $opt{'w'} if defined( $opt{'w'} );
 $Passes        = $opt{'p'} if defined( $opt{'p'} );
-$Input_Folder  = $opt{'i'} if defined( $opt{'i'} );
-$Output_Folder = $opt{'o'} if defined( $opt{'o'} );
-$Output_name   = $opt{'n'} if defined( $opt{'n'} );
 
 #This integer test fails on "+n", but that isn't serious here.
 die "The rolling average window for luminance smoothing should be a positive number greater or equal to 2" if ! ($RollingWindow eq int( $RollingWindow ) && $RollingWindow > 1 ) ;
@@ -141,38 +129,15 @@ debug("Using $statFieldsPerColChannel channel stat fields.\n");
 # Format will be: TODO: Add this here
 my %luminance;
 
-#outputfolder like /data/timelapse
-my $output_dir = "$Output_Folder/$Output_name";
-#$dir  = dirname($path);
-
-debug("outputfolder $output_dir \n");
-debug("Input_Folder $Input_Folder \n");
-
-#Put list of files in the directory into an array:
-#ToDo: listoffiles
-
 # The working directory is the current directory.
-#my $data_dir = ".";
-my $data_dir = $Input_Folder;
-opendir( DATA_DIR, $data_dir ) || die "Cannot open Input_Folder $data_dir\n";
-my @files = read_dir($data_dir);
+my $data_dir = ".";
+opendir( DATA_DIR, $data_dir ) || die "Cannot open $data_dir\n";
+#Put list of files in the directory into an array:
+my @files = readdir(DATA_DIR);
 debug("files @files \n");
-@files = sort @files;
-debug("files @files \n");
-#my $data_dir = '/data/temp/2019_10_10';
-#
-#opendir(my $dh, $data_dir) or die "\nUnable to access directory $data_dir!!!\n"; 
-#my @files = grep { -f "$data_dir\\$_" } readdir $dh;
 #Assume that the files are named in dictionary sequence - they will be processed as such.
+@files = sort @files;
 
-
-#opendir(my $dh, $input) or die "\nUnable to access directory $input!!!\n"; 
-
-#my @dir = grep { -f "$input\\$_" } readdir $dh;
-
-
-#debug("files $files \n");
-#debug("data_dir $data_dir \n");
 #Initialize count variable to number files in hash
 my $count = 0;
 
@@ -180,22 +145,15 @@ my $count = 0;
 my $prevfmt = "";
 
 #Process the list of files, putting all image files into the luminance hash.
-if ( scalar @files != 0 ) 
-{
-  foreach my $filename (@files) 
-  {
+if ( scalar @files != 0 ) {
+  foreach my $filename (@files) {
       my $ft   = File::Type->new();
-      my $filename = "${data_dir}/${filename}";
-      debug("$filename \n");
       my $type = $ft->mime_type($filename);
       my ( $filetype, $fileformat ) = split( /\//, $type );
       #If it's an image file, add it to the luminance hash.
-      if ( $filetype eq "image" ) 
-      {
+      if ( $filetype eq "image" ) {
         #Check whether we have a new image format - this is probably unwanted, so warn the user.
-        if ( $prevfmt eq "" ) 
-        { $prevfmt = $fileformat } elsif ( $prevfmt ne "warned" && $prevfmt ne $fileformat ) 
-        {
+        if ( $prevfmt eq "" ) { $prevfmt = $fileformat } elsif ( $prevfmt ne "warned" && $prevfmt ne $fileformat ) {
           say "Images of type $prevfmt and $fileformat detected! ARE YOU SURE THIS IS JUST ONE IMAGE SEQUENCE?";
           #no more warnings about this from now on
           $prevfmt = "warned"
@@ -217,8 +175,7 @@ luminance_det();
 
 my $CurrentPass = 1;
 
-while ( $CurrentPass <= $Passes ) 
-{
+while ( $CurrentPass <= $Passes ) {
   say "\n-------------- LUMINANCE SMOOTHING PASS $CurrentPass/$Passes --------------\n";
   new_luminance_calculation();
   $CurrentPass++;
@@ -237,8 +194,7 @@ say "$max_entries files have been processed";
 sub luminance_det {
   my $progress    = Term::ProgressBar->new( { count => $max_entries } );
 
-  for ( my $i = 0; $i < $max_entries; $i++ ) 
-  {
+  for ( my $i = 0; $i < $max_entries; $i++ ) {
     verbose("Original luminance of Image $luminance{$i}{filename} is being processed...\n");
     
     #Create exifTool object for the image
@@ -246,21 +202,17 @@ sub luminance_det {
     my $exifinfo; #variable to hold info read from xmp file if present.
 
     #If there's already an xmp file for this filename, read it.
-    if (-e $luminance{$i}{filename}.".xmp") 
-    { 
+    if (-e $luminance{$i}{filename}.".xmp") { 
       $exifinfo = $exifTool->ImageInfo($luminance{$i}{filename}.".xmp");
       debug("Found xmp file: $luminance{$i}{filename}.xmp\n")
     }
-    
     #Now, if it already has a luminance value, just use that:
-    if ( length $$exifinfo{Luminance} ) 
-    {
+    if ( length $$exifinfo{Luminance} ) {
       # Set it as the original and target value to start out with.
       $luminance{$i}{value} = $luminance{$i}{original} = $$exifinfo{Luminance};
       debug("Read luminance $$exifinfo{Luminance} from xmp file: $luminance{$i}{filename}.xmp\n")
     }
-    else 
-    {
+    else {
       #Create ImageMagick object for the image
       my $image = Image::Magick->new;
       #Evaluate the image using ImageMagick.
@@ -281,8 +233,7 @@ sub luminance_det {
       #This is the xmp for the input file, so it contains the original luminance.
       $exifTool->SetNewValue(luminance => $luminance{$i}{original}); 
       #If there is already an xmp file, just update it:
-      if (-e $luminance{$i}{filename}.".xmp") 
-      { 
+      if (-e $luminance{$i}{filename}.".xmp") { 
         $exifTool->WriteInfo($luminance{$i}{filename} . ".xmp")
       }
       #Otherwise, create a new one:
@@ -314,12 +265,10 @@ sub new_luminance_calculation {
   }
 }
 
-sub luminance_change 
-{
+sub luminance_change {
   my $progress = Term::ProgressBar->new( { count => $max_entries } );
 
-  for ( my $i = 0; $i < $max_entries; $i++ ) 
-  {
+  for ( my $i = 0; $i < $max_entries; $i++ ) {
     debug("Original luminance of $luminance{$i}{filename}: $luminance{$i}{original}\n");
     debug("Changed luminance of $luminance{$i}{filename}: $luminance{$i}{value}\n");
 
@@ -327,17 +276,19 @@ sub luminance_change
 
     debug("Imagemagick will set brightness of $luminance{$i}{filename} to: $brightness\n");
 
-    if ( !-d "$output_dir" ) 
-    {
-      mkdir("$output_dir") || die "Error creating directory: $!\n";
+    if ( !-d "Deflickered" ) {
+      mkdir("Deflickered") || die "Error creating directory: $!\n";
     }
     #TODO: Create directory name with timestamp to avoid overwriting previous work.
-    debug("Changing brightness of $luminance{$i}{filename} and saving to the destination directory...\n");
 
+    debug("Changing brightness of $luminance{$i}{filename} and saving to the destination directory...\n");
     my $image = Image::Magick->new;
     $image->Read( $luminance{$i}{filename} );
+
     $image->Mogrify( 'modulate', brightness => $brightness );
-    $image->Write( "$output_dir/" . $luminance{$i}{filename} );
+
+    $image->Write( "Deflickered/" . $luminance{$i}{filename} );
+
     $progress->update( $i + 1 );
   }
 }
@@ -354,9 +305,6 @@ sub usage {
   say "-V    Prints the version of this script and IM used.";
   say "-v    Verbose";
   say "-d    Debug";
-  say "-i    Inputfolder";
-  say "-o    Outputfolder";
-  say "-n    OutputName";
 }
 
 sub print_version {
@@ -371,6 +319,3 @@ sub verbose {
 sub debug {
   print $_[0] if ($DEBUG);
 }
-
-#-i "/data/temp/2019_10_10" -o "/data/temp/test" -d 1 -v 1 -V 1
-
